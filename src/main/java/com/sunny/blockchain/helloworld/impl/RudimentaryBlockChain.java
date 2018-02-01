@@ -2,7 +2,11 @@ package com.sunny.blockchain.helloworld.impl;
 
 import com.google.gson.GsonBuilder;
 import com.sunny.blockchain.helloworld.dataobjects.Block;
+import com.sunny.blockchain.helloworld.transactions.Transaction;
+import com.sunny.blockchain.helloworld.utils.SignatureUtility;
+import com.sunny.blockchain.helloworld.wallet.Wallet;
 
+import java.security.Security;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,6 +23,7 @@ public class RudimentaryBlockChain {
   private int difficulty = 5;
 
   public RudimentaryBlockChain(){
+    Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
     this.blockChain = new ArrayList<Block>();
     Block genesisBlock = new Block("Genesis block","0");
     blockChain.add(genesisBlock);
@@ -90,6 +95,17 @@ public class RudimentaryBlockChain {
     rudimentaryBlockChain.addToBlockChain("Adding block sunny 2");
     rudimentaryBlockChain.printBlockChainDetails();
     System.out.println(rudimentaryBlockChain.isValidChain());
+    Wallet walletA = new Wallet();
+    Wallet walletB = new Wallet();
+    System.out.println("Private and public keys:");
+    System.out.println(SignatureUtility.getStringFromKey(walletA.getPrivateKey()));
+    System.out.println(SignatureUtility.getStringFromKey(walletA.getPublicKey()));
+    //Create a test transaction from WalletA to walletB
+    Transaction transaction = new Transaction(walletA.getPublicKey(), walletB.getPublicKey(), 5, null);
+    transaction.setSignature(transaction.generateSignature(walletA.getPrivateKey()));
+    //Verify the signature works and verify it from the public key
+    System.out.println("Is signature verified");
+    System.out.println(transaction.verifiySignature());
   }
 
 }
