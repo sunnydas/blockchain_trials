@@ -1,8 +1,11 @@
 package com.sunny.blockchain.helloworld.dataobjects;
 
+import com.sunny.blockchain.helloworld.transactions.Transaction;
 import com.sunny.blockchain.helloworld.utils.SignatureUtility;
 
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
 /**
  * This class represents the logical entity - block
@@ -11,50 +14,51 @@ import java.util.Date;
  */
 public class Block {
 
+  private String merkleRoot;
+
     /*
     Main attributes
      */
     private String hash;
     private String previousHash;
-    private String data;
+  public List<Transaction> data = new ArrayList<Transaction>(); //our data will be a simple message.
     private long timeStamp;
+
+  public void setHash(String hash) {
+    this.hash = hash;
+  }
+
+  public void setPreviousHash(String previousHash) {
+    this.previousHash = previousHash;
+  }
+
+  public List<Transaction> getTransactions() {
+    return data;
+  }
 
   @Override
   public String toString() {
     return "Block{" +
         "hash='" + hash + '\'' +
         ", previousHash='" + previousHash + '\'' +
-        ", data='" + data + '\'' +
+        ", transactions=" + data +
         ", timeStamp=" + timeStamp +
         ", nonce=" + nonce +
         '}';
   }
 
-  @Override
-  public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
-
-    Block block = (Block) o;
-
-    if (getTimeStamp() != block.getTimeStamp()) return false;
-    if (getNonce() != block.getNonce()) return false;
-    if (getHash() != null ? !getHash().equals(block.getHash()) : block.getHash() != null) return false;
-    if (getPreviousHash() != null ? !getPreviousHash().equals(block.getPreviousHash()) : block.getPreviousHash() != null)
-      return false;
-    return !(getData() != null ? !getData().equals(block.getData()) : block.getData() != null);
-
+  public void setTransactions(List<Transaction> transactions) {
+    this.data = transactions;
   }
 
-  @Override
-  public int hashCode() {
-    int result = getHash() != null ? getHash().hashCode() : 0;
-    result = 31 * result + (getPreviousHash() != null ? getPreviousHash().hashCode() : 0);
-    result = 31 * result + (getData() != null ? getData().hashCode() : 0);
-    result = 31 * result + (int) (getTimeStamp() ^ (getTimeStamp() >>> 32));
-    result = 31 * result + getNonce();
-    return result;
+  public void setTimeStamp(long timeStamp) {
+    this.timeStamp = timeStamp;
   }
+
+  public void setNonce(int nonce) {
+    this.nonce = nonce;
+  }
+
 
   public int getNonce() {
 
@@ -63,8 +67,8 @@ public class Block {
 
   private int nonce;
 
-  public Block(String data,String previousHash) {
-    this.data = data;
+  public Block(String previousHash) {
+    //this.data = data;
     this.previousHash = previousHash;
     this.timeStamp = new Date().getTime();
     //Hash calculation should come at the end
@@ -79,7 +83,7 @@ public class Block {
     String calculatedhash = SignatureUtility.applySha256(
         previousHash +
             Long.toString(timeStamp) +
-            data + nonce
+             Integer.toString(nonce)  + merkleRoot
     );
     return calculatedhash;
   }
@@ -98,10 +102,6 @@ public class Block {
   }
 
 
-  public String getData() {
-    return data;
-  }
-
   /**
    * Very important critical, this is the proof of work logic.
    * Essentially we need to generate a hash with the same number of zeros
@@ -110,6 +110,7 @@ public class Block {
    * @param difficulty
    */
   public void mineBlock(int difficulty) {
+    merkleRoot = SignatureUtility.getMerkleRoot(data);
     String target = new String(new char[difficulty]).replace('\0', '0'); //Create a string with difficulty * "0"
     while(!hash.substring( 0, difficulty).equals(target)) {
       //The change is nonce affects the hash and hopefully we achive the number of zeroes required
@@ -118,6 +119,21 @@ public class Block {
       //System.out.println(hash);
     }
     System.out.println("Block Mined!!! : " + hash);
+  }
+
+  //Add transactions to this block
+  public boolean addTransaction(Transaction transaction) {
+    //process transaction and check if valid, unless block is genesis block then ignore.
+    if(transaction == null) return false;
+    if((previousHash != "0")) {
+      if((transaction.processTransaction() != true)) {
+        System.out.println("Transaction failed to process. Discarded.");
+        return false;
+      }
+    }
+    data.add(transaction);
+    System.out.println("Transaction Successfully added to Block");
+    return true;
   }
 
 }

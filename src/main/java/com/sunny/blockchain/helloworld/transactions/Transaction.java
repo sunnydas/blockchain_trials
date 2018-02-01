@@ -1,6 +1,6 @@
 package com.sunny.blockchain.helloworld.transactions;
 
-import ca.uhn.hl7v2.util.StringUtil;
+import com.sunny.blockchain.helloworld.impl.RudimentaryBlockChain;
 import com.sunny.blockchain.helloworld.utils.SignatureUtility;
 
 import java.security.PrivateKey;
@@ -134,6 +134,7 @@ public class Transaction {
     this.inputs = inputs;
     this.outputs = outputs;
   }
+  private static int sequence = 0; //A rough count of how many transactions have been generated
 
   //Signs all the data we dont wish to be tampered with.
   public byte[] generateSignature(PrivateKey privateKey) {
@@ -146,4 +147,72 @@ public class Transaction {
     String data = SignatureUtility.getStringFromKey(sender) + SignatureUtility.getStringFromKey(reciepient) + Float.toString(value)	;
     return SignatureUtility.verifyECDSASig(sender, data, signature);
   }
+
+  private String calulateHash() {
+    sequence++; //increase the sequence to avoid 2 identical transactions having the same hash
+    return SignatureUtility.applySha256(
+        SignatureUtility.getStringFromKey(sender) +
+            SignatureUtility.getStringFromKey(reciepient) +
+            Float.toString(value) + sequence
+    );
+  }
+
+  //Returns true if new transaction could be created.
+  public boolean processTransaction() {
+
+    if(verifiySignature() == false) {
+      System.out.println("#Transaction Signature failed to verify");
+      return false;
+    }
+
+    //gather transaction inputs (Make sure they are unspent):
+    for(TransactionInput i : inputs) {
+      i.setUTXO(RudimentaryBlockChain.UTXOs.get(i.getTransactionOutputId()));
+    }
+
+    //check if transaction is valid:
+    if(getInputsValue() < RudimentaryBlockChain.minimumTransaction) {
+      System.out.println("#Transaction Inputs to small: " + getInputsValue());
+      return false;
+    }
+
+    //generate transaction outputs:
+    float leftOver = getInputsValue() - value; //get value of inputs then the left over change:
+    transactionId = calulateHash();
+    outputs.add(new TransactionOutput( this.reciepient, value,transactionId)); //send value to recipient
+    outputs.add(new TransactionOutput( this.sender, leftOver,transactionId)); //send the left over 'change' back to sender
+
+    //add outputs to Unspent list
+    for(TransactionOutput o : outputs) {
+      RudimentaryBlockChain.UTXOs.put(o.getId() , o);
+    }
+
+    //remove transaction inputs from UTXO lists as spent:
+    for(TransactionInput i : inputs) {
+      if(i.getUTXO() == null) continue; //if Transaction can't be found skip it
+      RudimentaryBlockChain.UTXOs.remove(i.getUTXO().getId());
+    }
+
+    return true;
+  }
+
+  //returns sum of inputs(UTXOs) values
+  public float getInputsValue() {
+    float total = 0;
+    for(TransactionInput i : inputs) {
+      if(i.getUTXO() == null) continue; //if Transaction can't be found skip it
+      total += i.getUTXO().getValue();
+    }
+    return total;
+  }
+
+  //returns sum of outputs:
+  public float getOutputsValue() {
+    float total = 0;
+    for(TransactionOutput o : outputs) {
+      total += o.getValue();
+    }
+    return total;
+  }
+
 }

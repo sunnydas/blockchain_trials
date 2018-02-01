@@ -3,12 +3,16 @@ package com.sunny.blockchain.helloworld.impl;
 import com.google.gson.GsonBuilder;
 import com.sunny.blockchain.helloworld.dataobjects.Block;
 import com.sunny.blockchain.helloworld.transactions.Transaction;
+import com.sunny.blockchain.helloworld.transactions.TransactionInput;
+import com.sunny.blockchain.helloworld.transactions.TransactionOutput;
 import com.sunny.blockchain.helloworld.utils.SignatureUtility;
 import com.sunny.blockchain.helloworld.wallet.Wallet;
 
 import java.security.Security;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Created by sundas on 2/1/2018.
@@ -17,30 +21,62 @@ public class RudimentaryBlockChain {
 
   private List<Block> blockChain;
 
+  public static Map<String,TransactionOutput> UTXOs = new HashMap<String,TransactionOutput>(); //list of all unspent transactions.
+
+  public static float minimumTransaction = 0.1f;
+
   /**
    * For proof of work
    */
-  private int difficulty = 5;
+  private int difficulty = 3;
+
+  private Transaction genesisTransaction;
+
+  public Wallet getWalletA() {
+    return walletA;
+  }
+
+  public void setWalletA(Wallet walletA) {
+    this.walletA = walletA;
+  }
+
+  public Wallet getWalletB() {
+    return walletB;
+  }
+
+  public void setWalletB(Wallet walletB) {
+    this.walletB = walletB;
+  }
+
+  private Wallet walletA;
+  private Wallet walletB;
 
   public RudimentaryBlockChain(){
     Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
     this.blockChain = new ArrayList<Block>();
-    Block genesisBlock = new Block("Genesis block","0");
+    //Create wallets:
+    walletA = new Wallet();
+    walletB = new Wallet();
+    Wallet coinbase = new Wallet();
+    //create genesis transaction, which sends 100 coins to walletA:
+    genesisTransaction = new Transaction(coinbase.getPublicKey(), walletA.getPublicKey(), 100f, null);
+    genesisTransaction.generateSignature(coinbase.getPrivateKey());	 //manually sign the genesis transaction
+    genesisTransaction.setTransactionId("0"); //manually set the transaction id
+    genesisTransaction.getOutputs().add(new TransactionOutput(genesisTransaction.getReciepient(), genesisTransaction.getValue(), genesisTransaction.getTransactionId())); //manually add the Transactions Output
+    UTXOs.put(genesisTransaction.getOutputs().get(0).getId(), genesisTransaction.getOutputs().get(0)); //its important to store our first transaction in the UTXOs list.
+    Block genesisBlock = new Block("0");
+    genesisBlock.addTransaction(genesisTransaction);
+    genesisBlock.mineBlock(difficulty);
     blockChain.add(genesisBlock);
   }
 
-  /**
-   *
-   * @param data
-   */
-  public void addToBlockChain(String data){
-    Block block = new Block(data,this.blockChain.get(blockChain.size() - 1).getHash());
-    System.out.println("Adding data = " + data);
-    System.out.println("Mining begins ... ");
+  public void addToBlockChain(Transaction transaction){
+    Block block = new Block(blockChain.get(blockChain.size() - 1).getHash());
+    block.addTransaction(transaction);
     block.mineBlock(difficulty);
-    System.out.println("Mining done ...");
     blockChain.add(block);
   }
+
 
   /**
    * print details of block chain
@@ -57,6 +93,9 @@ public class RudimentaryBlockChain {
    */
   public boolean isValidChain(){
     boolean valid = true;
+    HashMap<String,TransactionOutput> tempUTXOs = new HashMap<String,TransactionOutput>(); //a temporary working list of unspent transactions at a given block state.
+    tempUTXOs.put(genesisTransaction.getOutputs().get(0).getId(), genesisTransaction.getOutputs().get(0));
+
     if(blockChain.size() > 1) {
       String target = new String(new char[difficulty]).replace('\0', '0');
       for (int i = 1; i < blockChain.size(); i++) {
@@ -80,8 +119,55 @@ public class RudimentaryBlockChain {
           valid = false;
           break;
         }
+        //loop thru blockchains transactions:
+        TransactionOutput tempOutput;
+        for(int t=0; t <currentBlock.getTransactions().size(); t++) {
+          Transaction currentTransaction = currentBlock.getTransactions().get(t);
+
+          if(!currentTransaction.verifiySignature()) {
+            System.out.println("#Signature on Transaction(" + t + ") is Invalid");
+            return false;
+          }
+          if(currentTransaction.getInputsValue() != currentTransaction.getOutputsValue()) {
+            System.out.println("#Inputs are note equal to outputs on Transaction(" + t + ")");
+            return false;
+          }
+
+          for(TransactionInput input: currentTransaction.getInputs()) {
+            tempOutput = tempUTXOs.get(input.getTransactionOutputId());
+
+            if(tempOutput == null) {
+              System.out.println("#Referenced input on Transaction(" + t + ") is Missing");
+              return false;
+            }
+
+            if(input.getUTXO().getValue() != tempOutput.getValue()) {
+              System.out.println("#Referenced input Transaction(" + t + ") value is Invalid");
+              return false;
+            }
+
+            tempUTXOs.remove(input.getTransactionOutputId());
+          }
+
+          for(TransactionOutput output: currentTransaction.getOutputs()) {
+            tempUTXOs.put(output.getId(), output);
+          }
+
+          if( currentTransaction.getOutputs().get(0).getReciepient() != currentTransaction.getReciepient()) {
+            System.out.println("#Transaction(" + t + ") output reciepient is not who it should be");
+            return false;
+          }
+          if( currentTransaction.getOutputs().get(1).getReciepient() != currentTransaction.getSender()) {
+            System.out.println("#Transaction(" + t + ") output 'change' is not sender.");
+            return false;
+          }
+
+        }
+
       }
+
     }
+
     return valid;
   }
 
@@ -91,21 +177,24 @@ public class RudimentaryBlockChain {
    */
   public static void main(String[] args) {
     RudimentaryBlockChain rudimentaryBlockChain = new RudimentaryBlockChain();
-    rudimentaryBlockChain.addToBlockChain("Adding block sunny 1");
-    rudimentaryBlockChain.addToBlockChain("Adding block sunny 2");
-    rudimentaryBlockChain.printBlockChainDetails();
+    System.out.println("\nWalletA's balance is: " + rudimentaryBlockChain.getWalletA().getBalance());
+    System.out.println("\nWalletA is Attempting to send funds (40) to WalletB...");
+    Transaction transaction = rudimentaryBlockChain.getWalletA().sendFunds(rudimentaryBlockChain.getWalletB().getPublicKey(), 40f);
+    rudimentaryBlockChain.addToBlockChain(transaction);
+    System.out.println("\nWalletA's balance is: " + rudimentaryBlockChain.getWalletA().getBalance());
+    System.out.println("\nWalletB's balance is: " + rudimentaryBlockChain.getWalletB().getBalance());
+    System.out.println("\nWalletA Attempting to send more funds (1000) than it has...");
+    transaction = rudimentaryBlockChain.getWalletA().sendFunds(rudimentaryBlockChain.getWalletB().getPublicKey(), 100f);
+    rudimentaryBlockChain.addToBlockChain(transaction);
+    System.out.println("\nWalletA's balance is: " + rudimentaryBlockChain.getWalletA().getBalance());
+    System.out.println("\nWalletB's balance is: " + rudimentaryBlockChain.getWalletB().getBalance());
+    System.out.println("\nWalletB is Attempting to send funds (20) to WalletA...");
+    transaction = rudimentaryBlockChain.getWalletB().sendFunds(rudimentaryBlockChain.getWalletA().getPublicKey(), 20f);
+    rudimentaryBlockChain.addToBlockChain(transaction);
+    System.out.println("\nWalletA's balance is: " + rudimentaryBlockChain.getWalletA().getBalance());
+    System.out.println("\nWalletB's balance is: " + rudimentaryBlockChain.getWalletB().getBalance());
     System.out.println(rudimentaryBlockChain.isValidChain());
-    Wallet walletA = new Wallet();
-    Wallet walletB = new Wallet();
-    System.out.println("Private and public keys:");
-    System.out.println(SignatureUtility.getStringFromKey(walletA.getPrivateKey()));
-    System.out.println(SignatureUtility.getStringFromKey(walletA.getPublicKey()));
-    //Create a test transaction from WalletA to walletB
-    Transaction transaction = new Transaction(walletA.getPublicKey(), walletB.getPublicKey(), 5, null);
-    transaction.setSignature(transaction.generateSignature(walletA.getPrivateKey()));
-    //Verify the signature works and verify it from the public key
-    System.out.println("Is signature verified");
-    System.out.println(transaction.verifiySignature());
+    //rudimentaryBlockChain.printBlockChainDetails();
   }
 
 }
